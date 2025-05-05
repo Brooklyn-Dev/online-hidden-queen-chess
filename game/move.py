@@ -11,7 +11,7 @@ class Move:
     end: int
     piece: int
     captured_piece: int
-    promotion: int = Piece.NONE
+    promotion: bool = False
     enpassant: bool = False
     castling: int = CastlingRights.NONE
     
@@ -91,8 +91,7 @@ def _generate_pawn_moves(board: "Board", square: int, piece: int) -> List[Move]:
     one_forward = square + direction
     if is_on_board(one_forward) and board.get_square(one_forward) == Piece.NONE:
         if rank + 1 == promotion_rank:
-            for promo_piece in (Piece.QUEEN, Piece.ROOK, Piece.BISHOP, Piece.KNIGHT):
-                moves.append(Move(square, one_forward, piece, Piece.NONE, promotion=promo_piece))  # 1 step forward + promotion
+            moves.append(Move(square, one_forward, piece, Piece.NONE, promotion=True))  # 1 step forward + promotion
         else:
             moves.append(Move(square, one_forward, piece, Piece.NONE))  # 1 step forward
         
@@ -112,8 +111,7 @@ def _generate_pawn_moves(board: "Board", square: int, piece: int) -> List[Move]:
         target_piece = board.get_square(target)
         if target_piece != Piece.NONE and Piece.colour(target_piece) != colour:
             if rank + 1 == promotion_rank:
-                for promo_piece in (Piece.QUEEN, Piece.ROOK, Piece.BISHOP, Piece.KNIGHT):
-                    moves.append(Move(square, target, piece, target_piece, promotion=promo_piece))  # 1 forward diagonal + capture + promotion
+                moves.append(Move(square, target, piece, target_piece, promotion=True))  # 1 forward diagonal + capture + promotion
             else:
                 moves.append(Move(square, target, piece, target_piece))  # 1 forward diagonal + capture
                 

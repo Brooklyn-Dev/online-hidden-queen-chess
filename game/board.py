@@ -1,16 +1,18 @@
-from os import path
-from typing import Dict, List
+from typing import List
 
 import pygame as pg
+
+from constants import BOARD_SIZE, SQUARE_SIZE
 
 from .castling_rights import CastlingRights
 from .piece import Piece
 from .move import Move, generate_moves
 from .utils import is_on_board
 
+from ui.piece_images import PIECE_IMAGES
+from ui.promotion_popup import PromotionPopup
+
 class Board:
-    SIZE = 640
-    SQUARE_SIZE = SIZE // 8
     LIGHT_SQUARE = pg.Color(208, 208, 208)
     DARK_SQUARE = pg.Color(144, 144, 144)
     ORANGE_HIGHLIGHT = pg.Color(255, 96, 0, 255)
@@ -20,7 +22,6 @@ class Board:
         self.__x = 0
         self.__y = 0
 
-        self.__squares: List[int] = [Piece.NONE] * 64
         self.__squares = [
             14, 11, 13, 15, 9, 13, 11, 14,
             10, 10, 10, 10, 10, 10, 10, 10,
@@ -39,11 +40,14 @@ class Board:
         self.__selected_square = None
         self.__moves = generate_moves(self)
         self.__selected_moves = []
+        
+        self.__promotion_move = None
+        self.__promotion_popup = None
     
     def set_pos_centre(self, win: pg.Surface) -> None:
-        self.__x = (win.get_width() - Board.SIZE) // 2
-        self.__y = (win.get_height() - Board.SIZE) // 2
-        self.__rect = pg.Rect(self.__x, self.__y, Board.SIZE, Board.SIZE)
+        self.__x = (win.get_width() - BOARD_SIZE) // 2
+        self.__y = (win.get_height() - BOARD_SIZE) // 2
+        self.__rect = pg.Rect(self.__x, self.__y, BOARD_SIZE, BOARD_SIZE)
 
     def get_square(self, index: int) -> int:
         if not is_on_board(index):
@@ -70,45 +74,57 @@ class Board:
         elif any(m.end == square_index for m in self.__selected_moves):
             colour = colour.lerp(Board.RED_HIGHLIGHT, 0.5)
             
-        pg.draw.rect(win, colour, pg.Rect(x, y, Board.SQUARE_SIZE, Board.SQUARE_SIZE))  
+        pg.draw.rect(win, colour, pg.Rect(x, y, SQUARE_SIZE, SQUARE_SIZE))  
         
     def __draw_piece(self, win: pg.Surface, x: int, y: int, piece: int) -> None:
-        image = _IMAGES[Piece.colour(piece)][Piece.piece_type(piece)]
+        image = PIECE_IMAGES[Piece.colour(piece)][Piece.piece_type(piece)]
         win.blit(image, (x, y))
         
     def draw(self, win: pg.Surface) -> None:     
         for rank in range(8):
             for file in range(8):
-                x = self.__x + file * Board.SQUARE_SIZE
-                y = self.__y + (7 - rank) * Board.SQUARE_SIZE
+                x = self.__x + file * SQUARE_SIZE
+                y = self.__y + (7 - rank) * SQUARE_SIZE
         
                 self.__draw_square(win, x, y, rank, file)
                 
                 piece = self.__squares[rank * 8 + file]
                 if piece != 0:
                     self.__draw_piece(win, x, y, piece)
+                    
+        if self.__promotion_popup is not None:
+            self.__promotion_popup.draw(win)
              
     def handle_pg_event(self, e: pg.Event) -> None:
+        if self.__promotion_popup is not None:
+            if self.__promotion_popup.poll(e):
+                return
+            
         if e.type == pg.MOUSEBUTTONDOWN:
             self.__handle_mouse_down(e)
                     
-    def __handle_mouse_down(self, e: pg.Event) -> None:
+    def __handle_mouse_down(self, e: pg.Event) -> None:        
         mx, my = e.pos
         
         if not self.__rect.collidepoint(mx, my):
             self.__selected_square = None
             self.__selected_moves = []
+            self.__promotion_move = None
+            self.__promotion_popup = None
             return
         
         rel_x = mx - self.__x
         rel_y = my - self.__y
                 
-        file = rel_x // Board.SQUARE_SIZE
-        rank = 7 - (rel_y // Board.SQUARE_SIZE)
+        file = rel_x // SQUARE_SIZE
+        rank = 7 - (rel_y // SQUARE_SIZE)
         index = rank * 8 + file
         
         if not is_on_board(index):
             return
+        
+        self.__promotion_move = None
+        self.__promotion_popup = None
         
         if self.__selected_square is not None:
             for move in self.__get_legal_moves_from(self.__selected_square):
@@ -126,11 +142,26 @@ class Board:
             self.__selected_square = None
             self.__selected_moves = []
             
+    def __on_promote(self, piece_type: int) -> None:
+        if self.__promotion_move is None:
+            return
+
+        self.__squares[self.__promotion_move.start] = Piece.NONE
+        self.__squares[self.__promotion_move.end] = piece_type | self.__colour_to_move
+        self.__promotion_popup = None
+        self.__promotion_move = None
+        self.__colour_to_move = Piece.BLACK if self.__colour_to_move == Piece.WHITE else Piece.WHITE
+        self.__moves = generate_moves(self)
+            
     def __make_move(self, move: Move) -> None:
-        self.__squares[move.start] = Piece.NONE
-        
-        if move.promotion != Piece.NONE:
-            self.__squares[move.end] = move.promotion | self.__colour_to_move
+        if move.promotion:
+            rank, file = divmod(move.end, 8)
+            pos = (self.__x + file * SQUARE_SIZE, self.__y +  (7 - rank) * SQUARE_SIZE)
+            
+            self.__promotion_move = move
+            self.__promotion_popup = PromotionPopup(self.__colour_to_move, pos, self.__on_promote)
+            
+            return
         elif move.enpassant:
             direction = 8 if self.__colour_to_move == Piece.WHITE else -8
             captured_square = move.end - direction 
@@ -195,6 +226,8 @@ class Board:
             
             self.__squares[move.end] = move.piece
         
+        self.__squares[move.start] = Piece.NONE
+        
         self.__last_move = move
         self.__colour_to_move = Piece.WHITE if self.__colour_to_move == Piece.BLACK else Piece.BLACK
         
@@ -202,22 +235,3 @@ class Board:
                 
     def __get_legal_moves_from(self, square: int) -> List[Move]:
         return [m for m in self.__moves if m.start == square]
-                
-# Load piece images
-_IMAGES: Dict[int, Dict[int, pg.Surface]] = {
-    Piece.WHITE: {},
-    Piece.BLACK: {}
-}
-
-for colour, prefix in ((Piece.WHITE, "w"), (Piece.BLACK, "b")):
-    for piece_type, suffix in (
-        (Piece.PAWN, "p"),
-        (Piece.KING, "k"),
-        (Piece.KNIGHT, "n"),
-        (Piece.BISHOP, "b"),
-        (Piece.ROOK, "r"),
-        (Piece.QUEEN, "q")
-    ):
-        image = pg.image.load(path.join("image", f"{prefix}{suffix}.png"))
-        scaled = pg.transform.smoothscale(image, (Board.SQUARE_SIZE, Board.SQUARE_SIZE))
-        _IMAGES[colour][piece_type] = scaled
