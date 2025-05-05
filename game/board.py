@@ -1,28 +1,223 @@
+from os import path
+from typing import Dict, List
+
 import pygame as pg
 
+from .castling_rights import CastlingRights
+from .piece import Piece
+from .move import Move, generate_moves
+from .utils import is_on_board
+
 class Board:
-    SIZE = 600
+    SIZE = 640
     SQUARE_SIZE = SIZE // 8
-    LIGHT_SQUARE = pg.Color(192, 192, 192)
-    DARK_SQUARE = pg.Color(96, 96, 96)
+    LIGHT_SQUARE = pg.Color(208, 208, 208)
+    DARK_SQUARE = pg.Color(144, 144, 144)
+    ORANGE_HIGHLIGHT = pg.Color(255, 96, 0, 255)
+    RED_HIGHLIGHT = pg.Color(255, 0, 0, 255)
     
     def __init__(self) -> None:
-        self.x = 0
-        self.y = 0
+        self.__x = 0
+        self.__y = 0
+
+        self.__squares: List[int] = [Piece.NONE] * 64
+        self.__squares = [
+            14, 11, 13, 15, 9, 13, 11, 14,
+            10, 10, 10, 10, 10, 10, 10, 10,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            18, 18, 18, 18, 18, 18, 18, 18,
+            22, 19, 21, 23, 17, 21, 19, 22
+        ]
+        
+        self.__last_move = None
+        self.__colour_to_move = Piece.WHITE
+        self.__castling_rights = CastlingRights.ALL
+
+        self.__selected_square = None
+        self.__moves = generate_moves(self)
+        self.__selected_moves = []
     
     def set_pos_centre(self, win: pg.Surface) -> None:
-        self.x = (win.get_width() - Board.SIZE) // 2
-        self.y = (win.get_height() - Board.SIZE) // 2
+        self.__x = (win.get_width() - Board.SIZE) // 2
+        self.__y = (win.get_height() - Board.SIZE) // 2
+        self.__rect = pg.Rect(self.__x, self.__y, Board.SIZE, Board.SIZE)
 
-    def __draw_square(self, win: pg.Surface, file: int, rank: int) -> None:
-        is_light_square = (file + rank) % 2 != 0
+    def get_square(self, index: int) -> int:
+        if not is_on_board(index):
+            raise IndexError()
+
+        return self.__squares[index]
+
+    def get_colour_to_move(self) -> int:
+        return self.__colour_to_move
+    
+    def get_last_move(self) -> Move | None:
+        return self.__last_move
+
+    def can_castle(self, castling_right: int) -> bool:
+        return self.__castling_rights & castling_right
+
+    def __draw_square(self, win: pg.Surface, x: int, y: int, rank: int, file: int) -> None:
+        is_light_square = (rank + file) % 2 != 0
         colour = Board.LIGHT_SQUARE if is_light_square else Board.DARK_SQUARE
-        x = self.x + file * Board.SQUARE_SIZE
-        y = self.y + rank * Board.SQUARE_SIZE
+        square_index = rank * 8 + file
         
+        if self.__selected_square == square_index:
+            colour = colour.lerp(Board.ORANGE_HIGHLIGHT, 0.6)
+        elif any(m.end == square_index for m in self.__selected_moves):
+            colour = colour.lerp(Board.RED_HIGHLIGHT, 0.5)
+            
         pg.draw.rect(win, colour, pg.Rect(x, y, Board.SQUARE_SIZE, Board.SQUARE_SIZE))  
         
+    def __draw_piece(self, win: pg.Surface, x: int, y: int, piece: int) -> None:
+        image = _IMAGES[Piece.colour(piece)][Piece.piece_type(piece)]
+        win.blit(image, (x, y))
+        
     def draw(self, win: pg.Surface) -> None:     
-        for file in range(8):
-            for rank in range(8):
-                self.__draw_square(win, file, rank)
+        for rank in range(8):
+            for file in range(8):
+                x = self.__x + file * Board.SQUARE_SIZE
+                y = self.__y + (7 - rank) * Board.SQUARE_SIZE
+        
+                self.__draw_square(win, x, y, rank, file)
+                
+                piece = self.__squares[rank * 8 + file]
+                if piece != 0:
+                    self.__draw_piece(win, x, y, piece)
+             
+    def handle_pg_event(self, e: pg.Event) -> None:
+        if e.type == pg.MOUSEBUTTONDOWN:
+            self.__handle_mouse_down(e)
+                    
+    def __handle_mouse_down(self, e: pg.Event) -> None:
+        mx, my = e.pos
+        
+        if not self.__rect.collidepoint(mx, my):
+            self.__selected_square = None
+            self.__selected_moves = []
+            return
+        
+        rel_x = mx - self.__x
+        rel_y = my - self.__y
+                
+        file = rel_x // Board.SQUARE_SIZE
+        rank = 7 - (rel_y // Board.SQUARE_SIZE)
+        index = rank * 8 + file
+        
+        if not is_on_board(index):
+            return
+        
+        if self.__selected_square is not None:
+            for move in self.__get_legal_moves_from(self.__selected_square):
+                if move.end == index:
+                    self.__make_move(move)
+                    self.__selected_square = None
+                    self.__selected_moves = []
+                    return
+    
+        piece = self.__squares[index]
+        if piece != Piece.NONE and Piece.colour(piece) == self.__colour_to_move:
+            self.__selected_square = index
+            self.__selected_moves = self.__get_legal_moves_from(index)
+        else:
+            self.__selected_square = None
+            self.__selected_moves = []
+            
+    def __make_move(self, move: Move) -> None:
+        self.__squares[move.start] = Piece.NONE
+        
+        if move.promotion != Piece.NONE:
+            self.__squares[move.end] = move.promotion | self.__colour_to_move
+        elif move.enpassant:
+            direction = 8 if self.__colour_to_move == Piece.WHITE else -8
+            captured_square = move.end - direction 
+            self.__squares[captured_square] = Piece.NONE
+            self.__squares[move.end] = move.piece
+        elif move.castling:
+            if self.__colour_to_move == Piece.WHITE:
+                self.__castling_rights &= CastlingRights.B
+            else:
+                self.__castling_rights &= CastlingRights.W
+                
+            match move.castling:
+                case CastlingRights.WK:
+                    self.__squares[4] = Piece.NONE
+                    self.__squares[7] = Piece.NONE
+                    self.__squares[6] = Piece.KING | Piece.WHITE
+                    self.__squares[5] = Piece.ROOK | Piece.WHITE
+                case CastlingRights.WQ:
+                    self.__squares[4] = Piece.NONE
+                    self.__squares[0] = Piece.NONE
+                    self.__squares[2] = Piece.KING | Piece.WHITE
+                    self.__squares[3] = Piece.ROOK | Piece.WHITE
+                case CastlingRights.BK:
+                    self.__squares[60] = Piece.NONE
+                    self.__squares[63] = Piece.NONE
+                    self.__squares[62] = Piece.KING | Piece.BLACK
+                    self.__squares[61] = Piece.ROOK | Piece.BLACK
+                case CastlingRights.BQ:
+                    self.__squares[60] = Piece.NONE
+                    self.__squares[56] = Piece.NONE
+                    self.__squares[58] = Piece.KING | Piece.BLACK
+                    self.__squares[59] = Piece.ROOK | Piece.BLACK
+        else:
+            piece_type = Piece.piece_type(move.piece)
+            captured_piece_type = Piece.piece_type(move.captured_piece)
+            
+            if piece_type == Piece.KING:
+                if Piece.colour(move.piece) == Piece.WHITE:
+                    self.__castling_rights &= CastlingRights.B
+                else:
+                    self.__castling_rights &= CastlingRights.W
+                    
+            elif piece_type == Piece.ROOK:
+                if move.start == 0:
+                    self.__castling_rights &= ~CastlingRights.WQ
+                elif move.start == 7:
+                    self.__castling_rights &= ~CastlingRights.WK
+                elif move.start == 56:
+                    self.__castling_rights &= ~CastlingRights.BQ
+                elif move.start == 63:
+                    self.__castling_rights &= ~CastlingRights.BK
+                    
+            if captured_piece_type == Piece.ROOK:
+                if move.end == 0:
+                    self.__castling_rights &= ~CastlingRights.WQ
+                elif move.end == 7:
+                    self.__castling_rights &= ~CastlingRights.WK
+                elif move.end == 56:
+                    self.__castling_rights &= ~CastlingRights.BQ
+                elif move.end == 63:
+                    self.__castling_rights &= ~CastlingRights.BK
+            
+            self.__squares[move.end] = move.piece
+        
+        self.__last_move = move
+        self.__colour_to_move = Piece.WHITE if self.__colour_to_move == Piece.BLACK else Piece.BLACK
+        
+        self.__moves = generate_moves(self)
+                
+    def __get_legal_moves_from(self, square: int) -> List[Move]:
+        return [m for m in self.__moves if m.start == square]
+                
+# Load piece images
+_IMAGES: Dict[int, Dict[int, pg.Surface]] = {
+    Piece.WHITE: {},
+    Piece.BLACK: {}
+}
+
+for colour, prefix in ((Piece.WHITE, "w"), (Piece.BLACK, "b")):
+    for piece_type, suffix in (
+        (Piece.PAWN, "p"),
+        (Piece.KING, "k"),
+        (Piece.KNIGHT, "n"),
+        (Piece.BISHOP, "b"),
+        (Piece.ROOK, "r"),
+        (Piece.QUEEN, "q")
+    ):
+        image = pg.image.load(path.join("image", f"{prefix}{suffix}.png"))
+        scaled = pg.transform.smoothscale(image, (Board.SQUARE_SIZE, Board.SQUARE_SIZE))
+        _IMAGES[colour][piece_type] = scaled
