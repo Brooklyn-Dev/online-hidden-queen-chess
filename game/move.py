@@ -15,22 +15,38 @@ class Move:
     enpassant: bool = False
     castling: int = CastlingRights.NONE
     
-def generate_moves(board: "Board") -> List[Move]:
+def generate_legal_moves(board: "Board", colour: int) -> List[Move]:
+    moves = generate_moves(board, colour)
+    legal_moves = []
+    
+    for move in moves:
+        board.make_move(move)
+        
+        king_square = board.get_king_square(colour)
+        
+        opp_responses = generate_moves(board, Piece.opposite_colour(colour))
+        if not any([res for res in opp_responses if res.end == king_square]):
+            legal_moves.append(move)
+            
+        board.unmake_move()
+            
+    return legal_moves
+
+def generate_moves(board: "Board", colour: int, include_king: bool = True) -> List[Move]:
     moves = []
-    colour_to_move = board.get_colour_to_move()
     
     for square in range(64):
         piece = board.get_square(square)
-        if Piece.colour(piece) != colour_to_move:
+        if Piece.colour(piece) != colour:
             continue
         
         piece_type = Piece.piece_type(piece)
 
         if piece_type == Piece.PAWN:
             moves += _generate_pawn_moves(board, square, piece)
-        elif piece_type == Piece.KING:
+        elif piece_type == Piece.KING and include_king:
             moves += _generate_king_moves(board, square, piece)
-            moves += _generate_castling_moves(board, square, piece)
+            moves += _generate_castling_moves(board, piece)
         elif piece_type == Piece.KNIGHT:
             moves += _generate_knight_moves(board, square, piece)
         elif Piece.is_sliding_piece(piece):
@@ -60,7 +76,10 @@ def _generate_king_moves(board: "Board", square: int, piece: int) -> List[Move]:
             
     return moves
 
-def _generate_castling_moves(board: "Board", square: int, piece: int) -> List[Move]:
+def _generate_castling_moves(board: "Board", piece: int) -> List[Move]:
+    if board.is_in_check(Piece.colour(piece)):
+        return []
+
     moves = []
     is_white = Piece.colour(piece) == Piece.WHITE
     rank = 0 if is_white else 7

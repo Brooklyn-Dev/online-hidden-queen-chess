@@ -26,6 +26,10 @@ class Piece:
         return piece & Piece.__COLOUR_MASK
     
     @staticmethod
+    def opposite_colour(colour: int) -> int:
+        return Piece.BLACK if colour == Piece.WHITE else Piece.WHITE
+    
+    @staticmethod
     def is_sliding_piece(piece: int) -> int:
         return (piece & 0b00100) == 0b00100    
     

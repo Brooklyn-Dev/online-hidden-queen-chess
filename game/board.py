@@ -6,7 +6,7 @@ from constants import BOARD_SIZE, SQUARE_SIZE
 
 from .castling_rights import CastlingRights
 from .piece import Piece
-from .move import Move, generate_moves
+from .move import Move, generate_moves, generate_legal_moves
 from .utils import is_on_board
 
 from ui.piece_images import PIECE_IMAGES
@@ -32,17 +32,26 @@ class Board:
             18, 18, 18, 18, 18, 18, 18, 18,
             22, 19, 21, 23, 17, 21, 19, 22
         ]
-        
         self.__last_move = None
         self.__colour_to_move = Piece.WHITE
         self.__castling_rights = CastlingRights.ALL
+        
+        self.__history = []
 
         self.__selected_square = None
-        self.__moves = generate_moves(self)
+        self.__moves = generate_legal_moves(self, self.__colour_to_move)
         self.__selected_moves = []
         
         self.__promotion_move = None
         self.__promotion_popup = None
+    
+    def save_history(self) -> None:
+        self.__history.append({
+            "squares": self.__squares[:],
+            "colour_to_move": self.__colour_to_move,
+            "castling_rights": self.__castling_rights,
+            "last_move": self.__last_move,
+        })
     
     def set_pos_centre(self, win: pg.Surface) -> None:
         self.__x = (win.get_width() - BOARD_SIZE) // 2
@@ -129,7 +138,8 @@ class Board:
         if self.__selected_square is not None:
             for move in self.__get_legal_moves_from(self.__selected_square):
                 if move.end == index:
-                    self.__make_move(move)
+                    self.make_move(move)
+                    self.__moves = generate_legal_moves(self, self.__colour_to_move)
                     self.__selected_square = None
                     self.__selected_moves = []
                     return
@@ -145,15 +155,17 @@ class Board:
     def __on_promote(self, piece_type: int) -> None:
         if self.__promotion_move is None:
             return
+        
+        self.save_history()
 
         self.__squares[self.__promotion_move.start] = Piece.NONE
         self.__squares[self.__promotion_move.end] = piece_type | self.__colour_to_move
         self.__promotion_popup = None
         self.__promotion_move = None
         self.__colour_to_move = Piece.BLACK if self.__colour_to_move == Piece.WHITE else Piece.WHITE
-        self.__moves = generate_moves(self)
+        self.__moves = generate_legal_moves(self, self.__colour_to_move)
             
-    def __make_move(self, move: Move) -> None:
+    def make_move(self, move: Move) -> None:
         if move.promotion:
             rank, file = divmod(move.end, 8)
             pos = (self.__x + file * SQUARE_SIZE, self.__y +  (7 - rank) * SQUARE_SIZE)
@@ -162,7 +174,10 @@ class Board:
             self.__promotion_popup = PromotionPopup(self.__colour_to_move, pos, self.__on_promote)
             
             return
-        elif move.enpassant:
+        
+        self.save_history()
+        
+        if move.enpassant:
             direction = 8 if self.__colour_to_move == Piece.WHITE else -8
             captured_square = move.end - direction 
             self.__squares[captured_square] = Piece.NONE
@@ -231,7 +246,29 @@ class Board:
         self.__last_move = move
         self.__colour_to_move = Piece.WHITE if self.__colour_to_move == Piece.BLACK else Piece.BLACK
         
-        self.__moves = generate_moves(self)
+    def unmake_move(self) -> None:
+        if not self.__history:
+            return
+        
+        last_state = self.__history.pop()
+        
+        self.__squares = last_state["squares"]
+        self.__colour_to_move = last_state["colour_to_move"]
+        self.__castling_rights = last_state["castling_rights"]
+        self.__last_move = last_state["last_move"]
                 
     def __get_legal_moves_from(self, square: int) -> List[Move]:
         return [m for m in self.__moves if m.start == square]
+    
+    def get_king_square(self, colour: int) -> int:
+        return next(i for i, p in enumerate(self.__squares) if p == (Piece.KING | colour))
+    
+    def is_in_check(self, colour: int) -> bool:
+        king_square = self.get_king_square(colour)
+        
+        opp_moves = generate_moves(self, Piece.opposite_colour(colour), include_king=False)
+        for move in opp_moves:
+            if move.end == king_square:
+                return True
+            
+        return False
