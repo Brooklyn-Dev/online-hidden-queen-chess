@@ -216,7 +216,10 @@ class Board:
     def make_move(self, move: Move) -> None:
         self.save_history()
         
-        if move.enpassant:
+        if move.promotion:
+            self.__squares[move.end] = move.promotion_piece
+            self.__squares[move.start] = Piece.NONE
+        elif move.enpassant:
             direction = 8 if self.__colour_to_move == Piece.WHITE else -8
             captured_square = move.end - direction 
             self.__squares[captured_square] = Piece.NONE

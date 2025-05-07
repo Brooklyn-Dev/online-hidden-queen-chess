@@ -12,23 +12,37 @@ class Move:
     piece: int
     captured_piece: int
     promotion: bool = False
+    promotion_piece: int = Piece.NONE
     enpassant: bool = False
     castling: int = CastlingRights.NONE
+    
+def _is_move_legal(board: "Board", colour: int, move: Move):
+    board.make_move(move)
+        
+    king_square = board.get_king_square(colour)
+        
+    opp_responses = generate_moves(board, Piece.opposite_colour(colour))
+    if not any([res for res in opp_responses if res.end == king_square]):
+        board.unmake_move()
+        return move
+            
+    board.unmake_move()
     
 def generate_legal_moves(board: "Board", colour: int) -> List[Move]:
     moves = generate_moves(board, colour)
     legal_moves = []
     
     for move in moves:
-        board.make_move(move)
-        
-        king_square = board.get_king_square(colour)
-        
-        opp_responses = generate_moves(board, Piece.opposite_colour(colour))
-        if not any([res for res in opp_responses if res.end == king_square]):
-            legal_moves.append(move)
-            
-        board.unmake_move()
+        if move.promotion:
+            for promo_type in (Piece.QUEEN, Piece.ROOK, Piece.BISHOP, Piece.KNIGHT):
+                promo_move = Move(move.start, move.end, move.piece, move.captured_piece, promotion=True)
+                promo_move.promotion_piece = promo_type | colour
+                        
+                if _is_move_legal(board, colour, promo_move):
+                    legal_moves.append(promo_move)
+        else:
+            if _is_move_legal(board, colour, move):
+                legal_moves.append(move)
             
     return legal_moves
 
