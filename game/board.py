@@ -1,10 +1,11 @@
-from typing import List
+from typing import List, Tuple
 
 import pygame as pg
 
 from constants import BOARD_SIZE, SQUARE_SIZE
 
 from .castling_rights import CastlingRights
+from .game_result import GameResult
 from .piece import Piece
 from .move import Move, generate_moves, generate_legal_moves
 from .utils import is_on_board
@@ -37,10 +38,17 @@ class Board:
         self.__castling_rights = CastlingRights.ALL
         
         self.__history = []
+        self.__position_freq = {}
+        
+        key = self.__get_position_key()
+        self.__position_freq[key] = self.__position_freq.get(key, 0) + 1
+
+        self.__game_result = GameResult.NONE
+        self.__fifty_move_count = 0
 
         self.__selected_square = None
-        self.__moves = generate_legal_moves(self, self.__colour_to_move)
         self.__selected_moves = []
+        self.__moves = generate_legal_moves(self, self.__colour_to_move)
         
         self.__promotion_move = None
         self.__promotion_popup = None
@@ -52,7 +60,19 @@ class Board:
             "castling_rights": self.__castling_rights,
             "last_move": self.__last_move,
         })
-    
+        
+    def __get_position_key(self) -> Tuple[Tuple[int], int, int, int]:
+        return (
+            tuple(self.__squares),
+            self.__colour_to_move,
+            self.__castling_rights,
+            self.__last_move.captured_piece if self.__last_move and self.__last_move.enpassant else Piece.NONE
+        )
+        
+    def __increment_position_key(self) -> None:
+        key = self.__get_position_key()
+        self.__position_freq[key] = self.__position_freq.get(key, 0) + 1
+        
     def set_pos_centre(self, win: pg.Surface) -> None:
         self.__x = (win.get_width() - BOARD_SIZE) // 2
         self.__y = (win.get_height() - BOARD_SIZE) // 2
@@ -72,6 +92,12 @@ class Board:
 
     def can_castle(self, castling_right: int) -> bool:
         return self.__castling_rights & castling_right
+
+    def get_game_result(self) -> int:
+        return self.__game_result
+
+    def is_game_over(self) -> int:
+        return self.__game_result != GameResult.NONE
 
     def __draw_square(self, win: pg.Surface, x: int, y: int, rank: int, file: int) -> None:
         is_light_square = (rank + file) % 2 != 0
@@ -102,8 +128,8 @@ class Board:
                     self.__draw_piece(win, x, y, piece)
                     
         if self.__promotion_popup is not None:
-            self.__promotion_popup.draw(win)
-             
+            self.__promotion_popup.draw(win) 
+            
     def handle_pg_event(self, e: pg.Event) -> None:
         if self.__promotion_popup is not None:
             if self.__promotion_popup.poll(e):
@@ -112,7 +138,7 @@ class Board:
         if e.type == pg.MOUSEBUTTONDOWN:
             self.__handle_mouse_down(e)
                     
-    def __handle_mouse_down(self, e: pg.Event) -> None:        
+    def __handle_mouse_down(self, e: pg.Event) -> None:
         mx, my = e.pos
         
         if not self.__rect.collidepoint(mx, my):
@@ -138,10 +164,7 @@ class Board:
         if self.__selected_square is not None:
             for move in self.__get_legal_moves_from(self.__selected_square):
                 if move.end == index:
-                    self.make_move(move)
-                    self.__moves = generate_legal_moves(self, self.__colour_to_move)
-                    self.__selected_square = None
-                    self.__selected_moves = []
+                    self.make_user_move(move)
                     return
     
         piece = self.__squares[index]
@@ -152,29 +175,45 @@ class Board:
             self.__selected_square = None
             self.__selected_moves = []
             
-    def __on_promote(self, piece_type: int) -> None:
+    def __on_user_promote(self, piece_type: int) -> None:
         if self.__promotion_move is None:
             return
         
         self.save_history()
+        self.__increment_position_key()
 
         self.__squares[self.__promotion_move.start] = Piece.NONE
         self.__squares[self.__promotion_move.end] = piece_type | self.__colour_to_move
+        self.__selected_square = None
+        self.__selected_moves = []
         self.__promotion_popup = None
         self.__promotion_move = None
         self.__colour_to_move = Piece.BLACK if self.__colour_to_move == Piece.WHITE else Piece.WHITE
         self.__moves = generate_legal_moves(self, self.__colour_to_move)
-            
-    def make_move(self, move: Move) -> None:
+        self.__check_game_end()
+        
+    def make_user_move(self, move: Move) -> None:
         if move.promotion:
             rank, file = divmod(move.end, 8)
-            pos = (self.__x + file * SQUARE_SIZE, self.__y +  (7 - rank) * SQUARE_SIZE)
+            pos = (self.__x + file * SQUARE_SIZE, self.__y + (7 - rank) * SQUARE_SIZE)
             
             self.__promotion_move = move
-            self.__promotion_popup = PromotionPopup(self.__colour_to_move, pos, self.__on_promote)
+            self.__promotion_popup = PromotionPopup(self.__colour_to_move, pos, self.__on_user_promote)
             
             return
         
+        self.__fifty_move_count += 1
+        if Piece.piece_type(move.piece) == Piece.PAWN or move.captured_piece != Piece.NONE:
+            self.__fifty_move_count = 0
+        
+        self.make_move(move)
+        
+        self.__selected_square = None
+        self.__selected_moves = []
+        self.__moves = generate_legal_moves(self, self.__colour_to_move)
+        self.__check_game_end()
+        
+    def make_move(self, move: Move) -> None:
         self.save_history()
         
         if move.enpassant:
@@ -245,6 +284,7 @@ class Board:
         
         self.__last_move = move
         self.__colour_to_move = Piece.WHITE if self.__colour_to_move == Piece.BLACK else Piece.BLACK
+        self.__increment_position_key()
         
     def unmake_move(self) -> None:
         if not self.__history:
@@ -256,6 +296,12 @@ class Board:
         self.__colour_to_move = last_state["colour_to_move"]
         self.__castling_rights = last_state["castling_rights"]
         self.__last_move = last_state["last_move"]
+        
+        key = self.__get_position_key()
+        if key in self.__position_freq:
+            self.__position_freq[key] -= 1
+            if self.__position_freq[key] == 0:
+                del self.__position_freq[key]
                 
     def __get_legal_moves_from(self, square: int) -> List[Move]:
         return [m for m in self.__moves if m.start == square]
@@ -272,3 +318,35 @@ class Board:
                 return True
             
         return False
+    
+    def __is_insufficient_material(self) -> bool:
+        pieces = [p for p in self.__squares if p != Piece.NONE]
+        material = [Piece.piece_type(p) for p in pieces]
+        
+        if material == [Piece.KING, Piece.KING]:
+            return True
+        
+        if len(material) == 3:
+            return Piece.KNIGHT in material or Piece.BISHOP in material
+        
+        return False
+    
+    def __is_threefold_repetition(self) -> bool:
+        for count in self.__position_freq.values():
+            if count >= 3:
+                return True
+            
+        return False
+    
+    def __check_game_end(self) -> None:
+        if len(self.__moves) == 0:
+            if self.is_in_check(self.__colour_to_move):
+                self.__game_result = GameResult.CHECKMATE
+            else:
+                self.__game_result = GameResult.STALEMATE
+        elif self.__is_insufficient_material():
+            self.__game_result = GameResult.INSUFFICIENT_MATERIAL
+        elif self.__fifty_move_count >= 50:
+            self.__game_result = GameResult.FIFTY_MOVE_RULE
+        elif self.__is_threefold_repetition():
+            self.__game_result = GameResult.THREEFOLD_REPETITION
