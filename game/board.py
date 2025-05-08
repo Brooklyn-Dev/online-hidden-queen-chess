@@ -23,16 +23,7 @@ class Board:
         self.__x = 0
         self.__y = 0
 
-        self.__squares = [
-            14, 11, 13, 15, 9, 13, 11, 14,
-            10, 10, 10, 10, 10, 10, 10, 10,
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
-            18, 18, 18, 18, 18, 18, 18, 18,
-            22, 19, 21, 23, 17, 21, 19, 22
-        ]
+        self.__squares = self.__get_initial_squares()
         self.__last_move = None
         self.__colour_to_move = Piece.WHITE
         self.__castling_rights = CastlingRights.ALL
@@ -48,10 +39,20 @@ class Board:
 
         self.__selected_square = None
         self.__selected_moves = []
-        self.__moves = generate_legal_moves(self, self.__colour_to_move)
-        
         self.__promotion_move = None
         self.__promotion_popup = None
+        
+        self.__moves = generate_legal_moves(self, self.__colour_to_move)
+    
+    @staticmethod
+    def __get_initial_squares() -> List[int]:
+        return [
+            14, 11, 13, 15, 9, 13, 11, 14,
+            10, 10, 10, 10, 10, 10, 10, 10,
+            *([0] * 32),
+            18, 18, 18, 18, 18, 18, 18, 18,
+            22, 19, 21, 23, 17, 21, 19, 22
+        ]
     
     def save_history(self) -> None:
         self.__history.append({
@@ -96,7 +97,7 @@ class Board:
     def get_game_result(self) -> int:
         return self.__game_result
 
-    def is_game_over(self) -> int:
+    def is_game_over(self) -> bool:
         return self.__game_result != GameResult.NONE
 
     def __draw_square(self, win: pg.Surface, x: int, y: int, rank: int, file: int) -> None:
@@ -142,10 +143,7 @@ class Board:
         mx, my = e.pos
         
         if not self.__rect.collidepoint(mx, my):
-            self.__selected_square = None
-            self.__selected_moves = []
-            self.__promotion_move = None
-            self.__promotion_popup = None
+            self.__clear_selection()
             return
         
         rel_x = mx - self.__x
@@ -172,9 +170,17 @@ class Board:
             self.__selected_square = index
             self.__selected_moves = self.__get_legal_moves_from(index)
         else:
-            self.__selected_square = None
-            self.__selected_moves = []
-            
+            self.__clear_selection()        
+    
+    def __clear_selection(self) -> None:
+        self.__selected_square = None
+        self.__selected_moves = self.__selected_moves.clear()
+        self.__clear_promotion()
+    
+    def __clear_promotion(self) -> None:
+        self.__promotion_move = None
+        self.__promotion_popup = None
+             
     def __on_user_promote(self, piece_type: int) -> None:
         if self.__promotion_move is None:
             return
@@ -184,10 +190,7 @@ class Board:
 
         self.__squares[self.__promotion_move.start] = Piece.NONE
         self.__squares[self.__promotion_move.end] = piece_type | self.__colour_to_move
-        self.__selected_square = None
-        self.__selected_moves = []
-        self.__promotion_popup = None
-        self.__promotion_move = None
+        self.__clear_selection()
         self.__colour_to_move = Piece.BLACK if self.__colour_to_move == Piece.WHITE else Piece.WHITE
         self.__moves = generate_legal_moves(self, self.__colour_to_move)
         self.__check_game_end()
@@ -208,8 +211,7 @@ class Board:
         
         self.make_move(move)
         
-        self.__selected_square = None
-        self.__selected_moves = []
+        self.__clear_selection()
         self.__moves = generate_legal_moves(self, self.__colour_to_move)
         self.__check_game_end()
         
