@@ -1,5 +1,6 @@
-from dataclasses import dataclass
-from typing import List
+from dataclasses import asdict, dataclass
+import json
+from typing import Dict, List
 
 from .castling_rights import CastlingRights
 from .piece import Piece
@@ -10,11 +11,23 @@ class Move:
     start: int
     end: int
     piece: int
-    captured_piece: int
+    captured_piece: int | None
     promotion: bool = False
     promotion_piece: int = Piece.NONE
     enpassant: bool = False
-    castling: int = CastlingRights.NONE
+    castling: bool = False
+    
+    @staticmethod
+    def from_dict(data: Dict) -> "Move":
+        return Move(**data)
+    
+    @staticmethod
+    def to_json(move: "Move") -> str:
+        return json.dumps(asdict(move))
+    
+    @staticmethod
+    def from_json(data: str) -> "Move":
+        return Move(**json.loads(data))
     
 def _is_move_legal(board: "Board", colour: int, move: Move):
     board.make_move(move)
@@ -117,11 +130,11 @@ def _generate_pawn_moves(board: "Board", square: int, piece: int) -> List[Move]:
     colour = Piece.colour(piece)
     rank, file = divmod(square, 8)
     
-    direction = 8 if colour == Piece.WHITE else -8
+    direction = 1 if colour == Piece.WHITE else -1
     start_rank = 1 if colour == Piece.WHITE else 6
     promotion_rank = 7 if colour == Piece.WHITE else 0
     
-    one_forward = square + direction
+    one_forward = square + direction * 8
     if is_on_board(one_forward) and board.get_square(one_forward) == Piece.NONE:
         if rank + 1 == promotion_rank:
             moves.append(Move(square, one_forward, piece, Piece.NONE, promotion=True))  # 1 step forward + promotion
@@ -129,7 +142,7 @@ def _generate_pawn_moves(board: "Board", square: int, piece: int) -> List[Move]:
             moves.append(Move(square, one_forward, piece, Piece.NONE))  # 1 step forward
         
         if rank == start_rank:
-            two_forward = one_forward + direction
+            two_forward = one_forward + direction * 8
             if board.get_square(two_forward) == Piece.NONE:
                 moves.append(Move(square, two_forward, piece, Piece.NONE))  # 2 steps forward       
                 
@@ -143,7 +156,7 @@ def _generate_pawn_moves(board: "Board", square: int, piece: int) -> List[Move]:
         
         target_piece = board.get_square(target)
         if target_piece != Piece.NONE and Piece.colour(target_piece) != colour:
-            if rank + 1 == promotion_rank:
+            if rank + direction == promotion_rank:
                 moves.append(Move(square, target, piece, target_piece, promotion=True))  # 1 forward diagonal + capture + promotion
             else:
                 moves.append(Move(square, target, piece, target_piece))  # 1 forward diagonal + capture
@@ -155,7 +168,7 @@ def _generate_pawn_moves(board: "Board", square: int, piece: int) -> List[Move]:
         if diff == 16:  # 2 steps forward
             last_end_rank, last_end_file = divmod(last_move.end, 8)
             if last_end_rank == rank and abs(last_end_file - file) == 1:
-                ep_target = last_move.end + direction  # Square behind opponent pawn
+                ep_target = last_move.end + direction * 8  # Square behind opponent pawn
                 if is_on_board(ep_target):
                     moves.append(Move(square, ep_target, piece, last_move.piece, enpassant=True))
             

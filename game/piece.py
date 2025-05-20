@@ -30,6 +30,10 @@ class Piece:
         return Piece.BLACK if colour == Piece.WHITE else Piece.WHITE
     
     @staticmethod
+    def colour_str(colour: int) -> int:
+        return "WHITE" if colour == Piece.WHITE else "BLACK"
+    
+    @staticmethod
     def is_sliding_piece(piece: int) -> int:
         return (piece & 0b00100) == 0b00100    
     

@@ -12,7 +12,7 @@ from game.piece import Piece
 class PromotionPopup:
     BG_COLOUR = pg.Color(255, 255, 255)
     
-    def __init__(self, colour: int, pos: Tuple[int, int], on_promote: Callable) -> None:    
+    def __init__(self, colour: int, pos: Tuple[int, int], on_promote: Callable[[int], int]) -> None:    
         self.__buttons = (
             ImageButton(PIECE_IMAGES[colour][Piece.QUEEN], (pos[0], pos[1]), on_promote, (Piece.QUEEN, )),
             ImageButton(PIECE_IMAGES[colour][Piece.ROOK], (pos[0], pos[1] + SQUARE_SIZE), on_promote, (Piece.ROOK, )),
@@ -27,10 +27,7 @@ class PromotionPopup:
         for button in self.__buttons:
             button.draw(win)
             
-    def poll(self, e: pg.Event) -> bool:
+    def poll(self, e: pg.Event) -> int | None:
         for button in self.__buttons:
             if button.poll(e):
-                button.invoke_callback()
-                return True
-            
-        return False
+                return button.invoke_callback()

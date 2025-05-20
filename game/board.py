@@ -39,8 +39,8 @@ class Board:
 
         self.__selected_square = None
         self.__selected_moves = []
-        self.__promotion_move = None
         self.__promotion_popup = None
+        self.__pending_promotion_move = None
         
         self.__moves = generate_legal_moves(self, self.__colour_to_move)
     
@@ -131,15 +131,22 @@ class Board:
         if self.__promotion_popup is not None:
             self.__promotion_popup.draw(win) 
             
-    def handle_pg_event(self, e: pg.Event) -> None:
-        if self.__promotion_popup is not None:
-            if self.__promotion_popup.poll(e):
-                return
-            
+    def handle_pg_event(self, e: pg.Event) -> Move | None:            
         if e.type == pg.MOUSEBUTTONDOWN:
-            self.__handle_mouse_down(e)
+            if self.__promotion_popup is not None:
+                piece_type = self.__promotion_popup.poll(e)
+                if piece_type is not None:
+                    move = self.__pending_promotion_move
+                    move.promotion_piece = piece_type | self.__colour_to_move
                     
-    def __handle_mouse_down(self, e: pg.Event) -> None:
+                    self.__clear_promotion()
+                    return move
+                
+                self.__clear_promotion()
+            
+            return self.__handle_mouse_down(e)
+                    
+    def __handle_mouse_down(self, e: pg.Event) -> Move | None:
         mx, my = e.pos
         
         if not self.__rect.collidepoint(mx, my):
@@ -156,61 +163,58 @@ class Board:
         if not is_on_board(index):
             return
         
-        self.__promotion_move = None
-        self.__promotion_popup = None
+        self.__clear_promotion()
         
         if self.__selected_square is not None:
             for move in self.__get_legal_moves_from(self.__selected_square):
                 if move.end == index:
-                    self.make_user_move(move)
-                    return
+                    self.__clear_selection()
+                    
+                    if move.promotion:
+                        self.create_promotion_popup(move)
+                        return None
+                
+                    return move
     
         piece = self.__squares[index]
         if piece != Piece.NONE and Piece.colour(piece) == self.__colour_to_move:
             self.__selected_square = index
             self.__selected_moves = self.__get_legal_moves_from(index)
         else:
-            self.__clear_selection()        
+            self.__clear_selection()   
     
     def __clear_selection(self) -> None:
         self.__selected_square = None
-        self.__selected_moves = self.__selected_moves.clear()
+        self.__selected_moves.clear()
         self.__clear_promotion()
     
     def __clear_promotion(self) -> None:
-        self.__promotion_move = None
         self.__promotion_popup = None
-             
-    def __on_user_promote(self, piece_type: int) -> None:
-        if self.__promotion_move is None:
-            return
-        
-        self.save_history()
-        self.__increment_position_key()
+        self.__pending_promotion_move = None
+    
+    def has_pending_promotion(self) -> bool:
+        return self.__pending_promotion_move is not None
+    
+    def is_valid_move(self, move: Move) -> bool:
+        for m in self.__moves:
+            if move == m:
+                return True
+            
+        return False
 
-        self.__squares[self.__promotion_move.start] = Piece.NONE
-        self.__squares[self.__promotion_move.end] = piece_type | self.__colour_to_move
-        self.__clear_selection()
-        self.__colour_to_move = Piece.BLACK if self.__colour_to_move == Piece.WHITE else Piece.WHITE
-        self.__moves = generate_legal_moves(self, self.__colour_to_move)
-        self.__check_game_end()
+    def create_promotion_popup(self, move: Move) -> None:
+        rank, file = divmod(move.end, 8)
+        pos = (self.__x + file * SQUARE_SIZE, self.__y + (7 - rank) * SQUARE_SIZE)
         
-    def make_user_move(self, move: Move) -> None:
-        if move.promotion:
-            rank, file = divmod(move.end, 8)
-            pos = (self.__x + file * SQUARE_SIZE, self.__y + (7 - rank) * SQUARE_SIZE)
-            
-            self.__promotion_move = move
-            self.__promotion_popup = PromotionPopup(self.__colour_to_move, pos, self.__on_user_promote)
-            
-            return
-        
+        self.__pending_promotion_move = move
+        self.__promotion_popup = PromotionPopup(self.__colour_to_move, pos, lambda piece_type: piece_type)
+    
+    def apply_move(self, move: Move) -> None:
         self.__fifty_move_count += 1
         if Piece.piece_type(move.piece) == Piece.PAWN or move.captured_piece != Piece.NONE:
             self.__fifty_move_count = 0
         
         self.make_move(move)
-        
         self.__clear_selection()
         self.__moves = generate_legal_moves(self, self.__colour_to_move)
         self.__check_game_end()
