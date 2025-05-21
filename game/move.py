@@ -1,3 +1,4 @@
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 import json
 from typing import Dict, List
@@ -30,16 +31,14 @@ class Move:
         return Move(**json.loads(data))
     
 def _is_move_legal(board: "Board", colour: int, move: Move):
-    board.make_move(move)
+    board_copy = deepcopy(board)
+    board_copy.make_move(move)
         
-    king_square = board.get_king_square(colour)
+    king_square = board_copy.get_king_square(colour)
         
-    opp_responses = generate_moves(board, Piece.opposite_colour(colour))
+    opp_responses = generate_moves(board_copy, Piece.opposite_colour(colour))
     if not any([res for res in opp_responses if res.end == king_square]):
-        board.unmake_move()
         return move
-            
-    board.unmake_move()
     
 def generate_legal_moves(board: "Board", colour: int) -> List[Move]:
     moves = generate_moves(board, colour)
