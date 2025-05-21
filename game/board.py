@@ -22,6 +22,8 @@ class Board:
     def __init__(self) -> None:
         self.__x = 0
         self.__y = 0
+        
+        self.__flipped = False
 
         self.__squares = self.__get_initial_squares()
         self.__last_move = None
@@ -53,6 +55,9 @@ class Board:
             18, 18, 18, 18, 18, 18, 18, 18,
             22, 19, 21, 23, 17, 21, 19, 22
         ]
+        
+    def flip_board(self) -> None:
+        self.__flipped = not self.__flipped
     
     def save_history(self) -> None:
         self.__history.append({
@@ -116,17 +121,29 @@ class Board:
         image = PIECE_IMAGES[Piece.colour(piece)][Piece.piece_type(piece)]
         win.blit(image, (x, y))
         
-    def draw(self, win: pg.Surface) -> None:     
-        for rank in range(8):
-            for file in range(8):
-                x = self.__x + file * SQUARE_SIZE
-                y = self.__y + (7 - rank) * SQUARE_SIZE
-        
-                self.__draw_square(win, x, y, rank, file)
-                
-                piece = self.__squares[rank * 8 + file]
-                if piece != 0:
-                    self.__draw_piece(win, x, y, piece)
+    def draw(self, win: pg.Surface) -> None:
+        if self.__flipped:
+            for rank in range(8):
+                for file in range(8):
+                    x = self.__x + (7 - file) * SQUARE_SIZE
+                    y = self.__y + rank * SQUARE_SIZE
+            
+                    self.__draw_square(win, x, y, rank, file)
+                    
+                    piece = self.__squares[rank * 8 + file]
+                    if piece != 0:
+                        self.__draw_piece(win, x, y, piece) 
+        else:
+            for rank in range(8):
+                for file in range(8):
+                    x = self.__x + file * SQUARE_SIZE
+                    y = self.__y + (7 - rank) * SQUARE_SIZE
+            
+                    self.__draw_square(win, x, y, rank, file)
+                    
+                    piece = self.__squares[rank * 8 + file]
+                    if piece != 0:
+                        self.__draw_piece(win, x, y, piece)
                     
         if self.__promotion_popup is not None:
             self.__promotion_popup.draw(win) 
@@ -156,8 +173,13 @@ class Board:
         rel_x = mx - self.__x
         rel_y = my - self.__y
                 
-        file = rel_x // SQUARE_SIZE
-        rank = 7 - (rel_y // SQUARE_SIZE)
+        if self.__flipped:
+            file = 7 - (rel_x // SQUARE_SIZE)
+            rank = rel_y // SQUARE_SIZE
+        else:
+            file = rel_x // SQUARE_SIZE
+            rank = 7 - (rel_y // SQUARE_SIZE)
+        
         index = rank * 8 + file
         
         if not is_on_board(index):
@@ -204,10 +226,15 @@ class Board:
 
     def create_promotion_popup(self, move: Move) -> None:
         rank, file = divmod(move.end, 8)
-        pos = (self.__x + file * SQUARE_SIZE, self.__y + (7 - rank) * SQUARE_SIZE)
+        if self.__flipped:
+            x = self.__x + (7 - file) * SQUARE_SIZE
+            y = self.__y + rank * SQUARE_SIZE
+        else:
+            x = self.__x + file * SQUARE_SIZE
+            y = self.__y + (7 - rank) * SQUARE_SIZE
         
         self.__pending_promotion_move = move
-        self.__promotion_popup = PromotionPopup(self.__colour_to_move, pos, lambda piece_type: piece_type)
+        self.__promotion_popup = PromotionPopup(self.__colour_to_move, (x, y), lambda piece_type: piece_type)
     
     def apply_move(self, move: Move) -> None:
         self.__fifty_move_count += 1

@@ -50,6 +50,9 @@ def main() -> None:
         print("[ERROR] Could not get player colour from server.")
         return
     
+    if client.get_colour() == Piece.BLACK:
+        Board.flip_board(board)
+    
     while True:
         clock.tick(FPS)
         
